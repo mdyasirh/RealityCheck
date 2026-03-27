@@ -6,44 +6,72 @@ import { Button } from "@/components/ui/button";
 import { UploadZone } from "@/components/upload";
 import { ScanningLoader } from "@/components/scanning-loader";
 import { Results } from "@/components/results";
+import type { ScanResult } from "@/lib/api";
 
-type AppState = "landing" | "upload" | "scanning" | "results";
+type AppState = "landing" | "upload" | "scanning" | "results" | "error";
 
 const FEATURES = [
   {
     icon: Image,
     title: "Image Analysis",
-    description: "Detect AI-generated photos, art, and manipulated images with pixel-level inspection.",
+    description:
+      "Detect AI-generated photos, art, and manipulated images with pixel-level inspection.",
   },
   {
     icon: Video,
     title: "Video Detection",
-    description: "Identify deepfake videos by analyzing temporal inconsistencies and facial artifacts.",
+    description:
+      "Identify deepfake videos by analyzing temporal inconsistencies and facial artifacts.",
   },
   {
     icon: AudioLines,
     title: "Audio Verification",
-    description: "Spot AI-synthesized voice clones and manipulated audio recordings.",
+    description:
+      "Spot AI-synthesized voice clones and manipulated audio recordings.",
   },
 ];
 
 export default function Home() {
   const [state, setState] = useState<AppState>("landing");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [scanId, setScanId] = useState<string | null>(null);
+  const [scanResult, setScanResult] = useState<ScanResult | null>(null);
+  const [fileThumbnailUrl, setFileThumbnailUrl] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const handleFileSelect = useCallback((file: File) => {
+  const handleUploadComplete = useCallback((id: string, file: File) => {
+    setScanId(id);
     setSelectedFile(file);
+
+    // Generate a thumbnail URL for image files
+    if (file.type.startsWith("image/")) {
+      setFileThumbnailUrl(URL.createObjectURL(file));
+    } else {
+      setFileThumbnailUrl(null);
+    }
+
     setState("scanning");
   }, []);
 
-  const handleScanComplete = useCallback(() => {
+  const handleScanComplete = useCallback((result: ScanResult) => {
+    setScanResult(result);
     setState("results");
   }, []);
 
-  const handleReset = useCallback(() => {
-    setSelectedFile(null);
-    setState("upload");
+  const handleScanError = useCallback((message: string) => {
+    setErrorMessage(message);
+    setState("error");
   }, []);
+
+  const handleReset = useCallback(() => {
+    if (fileThumbnailUrl) URL.revokeObjectURL(fileThumbnailUrl);
+    setSelectedFile(null);
+    setScanId(null);
+    setScanResult(null);
+    setFileThumbnailUrl(null);
+    setErrorMessage(null);
+    setState("upload");
+  }, [fileThumbnailUrl]);
 
   return (
     <div className="min-h-screen flex flex-col font-[family-name:var(--font-geist-sans)]">
@@ -52,8 +80,13 @@ export default function Home() {
         <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-4">
           <button
             onClick={() => {
+              if (fileThumbnailUrl) URL.revokeObjectURL(fileThumbnailUrl);
               setState("landing");
               setSelectedFile(null);
+              setScanId(null);
+              setScanResult(null);
+              setFileThumbnailUrl(null);
+              setErrorMessage(null);
             }}
             className="flex items-center gap-2 font-semibold tracking-tight"
           >
@@ -72,7 +105,6 @@ export default function Home() {
         {/* Landing */}
         {state === "landing" && (
           <div className="flex flex-col">
-            {/* Hero */}
             <section className="mx-auto flex max-w-3xl flex-col items-center gap-6 px-4 pt-20 pb-16 text-center md:pt-32 md:pb-24">
               <div className="inline-flex items-center gap-2 rounded-full border border-border bg-secondary px-4 py-1.5 text-xs font-medium text-muted-foreground">
                 <Sparkles className="h-3 w-3" />
@@ -98,15 +130,20 @@ export default function Home() {
                 <Button size="lg" onClick={() => setState("upload")}>
                   Start Checking
                 </Button>
-                <Button size="lg" variant="outline" onClick={() => {
-                  document.getElementById("features")?.scrollIntoView({ behavior: "smooth" });
-                }}>
+                <Button
+                  size="lg"
+                  variant="outline"
+                  onClick={() =>
+                    document
+                      .getElementById("features")
+                      ?.scrollIntoView({ behavior: "smooth" })
+                  }
+                >
                   Learn More
                 </Button>
               </div>
             </section>
 
-            {/* Features */}
             <section
               id="features"
               className="mx-auto grid max-w-5xl gap-6 px-4 pb-20 sm:grid-cols-3"
@@ -136,12 +173,12 @@ export default function Home() {
                 Drag and drop or click to select an image, video, or audio file.
               </p>
             </div>
-            <UploadZone onFileSelect={handleFileSelect} />
+            <UploadZone onUploadComplete={handleUploadComplete} />
           </section>
         )}
 
         {/* Scanning */}
-        {state === "scanning" && (
+        {state === "scanning" && scanId && (
           <section className="mx-auto max-w-5xl px-4 pt-16 md:pt-24">
             <div className="text-center mb-8">
               <h2 className="text-2xl font-bold mb-2">Analyzing Your File</h2>
@@ -149,14 +186,38 @@ export default function Home() {
                 Running deepfake detection models...
               </p>
             </div>
-            <ScanningLoader onComplete={handleScanComplete} />
+            <ScanningLoader
+              scanId={scanId}
+              onComplete={handleScanComplete}
+              onError={handleScanError}
+            />
           </section>
         )}
 
         {/* Results */}
-        {state === "results" && selectedFile && (
+        {state === "results" && scanResult && selectedFile && (
           <section className="mx-auto max-w-5xl px-4 pt-16 md:pt-24">
-            <Results fileName={selectedFile.name} onReset={handleReset} />
+            <Results
+              scanResult={scanResult}
+              fileName={selectedFile.name}
+              fileThumbnailUrl={fileThumbnailUrl}
+              onReset={handleReset}
+            />
+          </section>
+        )}
+
+        {/* Error */}
+        {state === "error" && (
+          <section className="mx-auto max-w-xl px-4 pt-16 md:pt-24 text-center">
+            <div className="rounded-lg border border-red-400/30 bg-red-400/5 p-8">
+              <h2 className="text-xl font-bold text-red-400 mb-2">
+                Analysis Failed
+              </h2>
+              <p className="text-sm text-muted-foreground mb-6">
+                {errorMessage ?? "Something went wrong. Please try again."}
+              </p>
+              <Button onClick={handleReset}>Try Again</Button>
+            </div>
           </section>
         )}
       </main>

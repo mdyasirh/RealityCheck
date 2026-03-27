@@ -19,6 +19,7 @@ class Settings(BaseSettings):
 
     # CORS
     frontend_url: str = "http://localhost:3000"
+    chrome_extension_id: str = ""
 
     # App
     upload_dir: str = "./temp"

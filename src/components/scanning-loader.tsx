@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { Progress } from "@/components/ui/progress";
+import { pollForResult, type ScanResult } from "@/lib/api";
 
 const SCAN_STEPS = [
   "Initializing deep analysis engine...",
@@ -13,38 +14,60 @@ const SCAN_STEPS = [
 ];
 
 interface ScanningLoaderProps {
-  onComplete: () => void;
+  scanId: string;
+  onComplete: (result: ScanResult) => void;
+  onError: (message: string) => void;
 }
 
-export function ScanningLoader({ onComplete }: ScanningLoaderProps) {
+export function ScanningLoader({ scanId, onComplete, onError }: ScanningLoaderProps) {
   const [progress, setProgress] = useState(0);
   const [stepIndex, setStepIndex] = useState(0);
+  const completedRef = useRef(false);
 
+  // Animate the progress bar independently of the actual poll
   useEffect(() => {
-    const duration = 4000;
-    const interval = 50;
-    const increment = 100 / (duration / interval);
     let current = 0;
-
     const timer = setInterval(() => {
-      current += increment;
-      if (current >= 100) {
-        current = 100;
-        clearInterval(timer);
-        setTimeout(onComplete, 400);
+      // Slow down as we approach 90% — the last 10% waits for the real result
+      if (current < 90) {
+        current += 0.5;
       }
       setProgress(current);
-      setStepIndex(Math.min(Math.floor((current / 100) * SCAN_STEPS.length), SCAN_STEPS.length - 1));
-    }, interval);
+      setStepIndex(
+        Math.min(Math.floor((current / 100) * SCAN_STEPS.length), SCAN_STEPS.length - 1),
+      );
+    }, 100);
 
     return () => clearInterval(timer);
-  }, [onComplete]);
+  }, []);
+
+  // Poll the backend for the real result
+  useEffect(() => {
+    let cancelled = false;
+
+    pollForResult(scanId, 2000, 90)
+      .then((result) => {
+        if (cancelled || completedRef.current) return;
+        completedRef.current = true;
+        // Fill the progress bar to 100%, then fire onComplete
+        setProgress(100);
+        setStepIndex(SCAN_STEPS.length - 1);
+        setTimeout(() => onComplete(result), 600);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        onError(err instanceof Error ? err.message : "Analysis failed.");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [scanId, onComplete, onError]);
 
   return (
     <div className="w-full max-w-xl mx-auto flex flex-col items-center gap-8 animate-fade-in-up">
       {/* Radar animation */}
       <div className="relative flex items-center justify-center w-40 h-40">
-        {/* Pulsing rings */}
         <div className="absolute inset-0 rounded-full border border-primary/20 animate-pulse-ring" />
         <div
           className="absolute inset-4 rounded-full border border-primary/30 animate-pulse-ring"
@@ -55,7 +78,6 @@ export function ScanningLoader({ onComplete }: ScanningLoaderProps) {
           style={{ animationDelay: "1s" }}
         />
 
-        {/* Radar sweep */}
         <div className="absolute inset-0 animate-radar-spin">
           <div
             className="absolute top-1/2 left-1/2 w-1/2 h-0.5 origin-left"
@@ -65,7 +87,6 @@ export function ScanningLoader({ onComplete }: ScanningLoaderProps) {
           />
         </div>
 
-        {/* Center dot */}
         <div className="relative z-10 w-3 h-3 rounded-full bg-primary shadow-lg shadow-primary/50" />
       </div>
 

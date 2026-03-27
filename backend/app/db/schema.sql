@@ -24,6 +24,8 @@ create table if not exists public.scans (
     user_id         uuid not null references public.users(id) on delete cascade,
     file_hash       text not null,
     result_score    real check (result_score >= 0 and result_score <= 100),
+    is_ai           boolean,
+    media_type      text check (media_type in ('image', 'audio', 'video')),
     created_at      timestamptz not null default now()
 );
 
