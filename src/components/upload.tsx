@@ -1,9 +1,10 @@
 "use client";
 
 import React, { useCallback, useState } from "react";
-import { Upload as UploadIcon, FileImage, FileVideo, FileAudio, X } from "lucide-react";
+import { Upload as UploadIcon, FileImage, FileVideo, FileAudio, X, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { uploadFile } from "@/lib/api";
 
 const ACCEPTED_TYPES: Record<string, string> = {
   "image/jpeg": ".jpg",
@@ -15,7 +16,7 @@ const ACCEPTED_TYPES: Record<string, string> = {
 const ACCEPT_STRING = Object.keys(ACCEPTED_TYPES).join(",");
 
 interface UploadProps {
-  onFileSelect: (file: File) => void;
+  onUploadComplete: (scanId: string, file: File) => void;
 }
 
 function getFileIcon(type: string) {
@@ -25,21 +26,21 @@ function getFileIcon(type: string) {
   return <UploadIcon className="h-6 w-6" />;
 }
 
-export function UploadZone({ onFileSelect }: UploadProps) {
+export function UploadZone({ onUploadComplete }: UploadProps) {
   const [isDragOver, setIsDragOver] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const inputRef = React.useRef<HTMLInputElement>(null);
 
-  const handleFile = useCallback(
-    (file: File) => {
-      if (!ACCEPTED_TYPES[file.type]) {
-        alert("Unsupported file type. Please upload .jpg, .png, .mp4, or .wav files.");
-        return;
-      }
-      setSelectedFile(file);
-    },
-    []
-  );
+  const handleFile = useCallback((file: File) => {
+    if (!ACCEPTED_TYPES[file.type]) {
+      setError("Unsupported file type. Please upload .jpg, .png, .mp4, or .wav files.");
+      return;
+    }
+    setError(null);
+    setSelectedFile(file);
+  }, []);
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
@@ -48,7 +49,7 @@ export function UploadZone({ onFileSelect }: UploadProps) {
       const file = e.dataTransfer.files[0];
       if (file) handleFile(file);
     },
-    [handleFile]
+    [handleFile],
   );
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -66,16 +67,28 @@ export function UploadZone({ onFileSelect }: UploadProps) {
       const file = e.target.files?.[0];
       if (file) handleFile(file);
     },
-    [handleFile]
+    [handleFile],
   );
 
   const clearFile = () => {
     setSelectedFile(null);
+    setError(null);
     if (inputRef.current) inputRef.current.value = "";
   };
 
-  const handleAnalyze = () => {
-    if (selectedFile) onFileSelect(selectedFile);
+  const handleAnalyze = async () => {
+    if (!selectedFile || isUploading) return;
+    setIsUploading(true);
+    setError(null);
+
+    try {
+      const { scan_id } = await uploadFile(selectedFile);
+      onUploadComplete(scan_id, selectedFile);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Upload failed. Please try again.");
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   return (
@@ -84,13 +97,13 @@ export function UploadZone({ onFileSelect }: UploadProps) {
         onDrop={handleDrop}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
-        onClick={() => !selectedFile && inputRef.current?.click()}
+        onClick={() => !selectedFile && !isUploading && inputRef.current?.click()}
         className={cn(
           "relative flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-8 md:p-12 transition-all duration-200 cursor-pointer",
           isDragOver
             ? "border-primary bg-primary/5 scale-[1.02]"
             : "border-muted-foreground/25 hover:border-muted-foreground/50 hover:bg-accent/50",
-          selectedFile && "cursor-default"
+          (selectedFile || isUploading) && "cursor-default",
         )}
       >
         <input
@@ -99,6 +112,7 @@ export function UploadZone({ onFileSelect }: UploadProps) {
           accept={ACCEPT_STRING}
           onChange={handleInputChange}
           className="hidden"
+          disabled={isUploading}
         />
 
         {!selectedFile ? (
@@ -134,22 +148,40 @@ export function UploadZone({ onFileSelect }: UploadProps) {
                 {(selectedFile.size / (1024 * 1024)).toFixed(2)} MB
               </p>
             </div>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                clearFile();
-              }}
-              className="rounded-full p-1 hover:bg-secondary transition-colors"
-            >
-              <X className="h-4 w-4 text-muted-foreground" />
-            </button>
+            {!isUploading && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  clearFile();
+                }}
+                className="rounded-full p-1 hover:bg-secondary transition-colors"
+              >
+                <X className="h-4 w-4 text-muted-foreground" />
+              </button>
+            )}
           </div>
         )}
       </div>
 
+      {error && (
+        <p className="text-sm text-red-400 text-center">{error}</p>
+      )}
+
       {selectedFile && (
-        <Button size="lg" className="w-full" onClick={handleAnalyze}>
-          Analyze File
+        <Button
+          size="lg"
+          className="w-full"
+          onClick={handleAnalyze}
+          disabled={isUploading}
+        >
+          {isUploading ? (
+            <>
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              Uploading...
+            </>
+          ) : (
+            "Analyze File"
+          )}
         </Button>
       )}
     </div>
